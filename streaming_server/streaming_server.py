@@ -25,7 +25,7 @@ import sherpa_onnx
 import websockets
 from itn.chinese.inverse_normalizer import InverseNormalizer
 from modelscope.hub.snapshot_download import snapshot_download
-from silero_vad import init_session, VADIterator
+from silero_vad import init_session, SileroVAD, VADIterator
 
 
 class StreamingServer(object):
@@ -173,12 +173,15 @@ class StreamingServer(object):
                 self.max_active_connections,
             )
             stream = self.recognizer.create_stream()
-            vad_iterator = VADIterator(self.vad_session, sampling_rate=self.sample_rate)
+            vad_iterator = VADIterator(
+                SileroVAD(self.vad_session, self.sample_rate, denoise=True)
+            )
 
             segment = 0
+            last_result = ""
             while True:
                 # Each message contains either a bytes buffer containing audio
-                # samples or contains "Done" meaning the end of utterance.
+                # samples in 16 kHz or contains "Done" meaning the end of utterance.
                 message = await socket.recv()
                 if message == "Done":
                     break
@@ -194,8 +197,9 @@ class StreamingServer(object):
                     while self.recognizer.is_ready(stream):
                         await self.compute_and_decode(stream)
                         result = self.recognizer.get_result(stream)
-                        if result == "":
+                        if result == "" or result == last_result:
                             continue
+                        last_result = result
                         await socket.send(
                             json.dumps({"text": result, "segment": segment})
                         )
