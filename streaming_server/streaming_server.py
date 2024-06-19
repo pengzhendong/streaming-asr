@@ -24,7 +24,7 @@ import numpy as np
 import sherpa_onnx
 import websockets
 from itn.chinese.inverse_normalizer import InverseNormalizer
-from modelscope.hub.snapshot_download import snapshot_download
+from modelscope import snapshot_download
 from silero_vad import init_session, SileroVAD, VADIterator
 
 
@@ -203,16 +203,16 @@ class StreamingServer(object):
                         await socket.send(
                             json.dumps({"text": result, "segment": segment})
                         )
-                        if "end" in speech_dict:
-                            result = self.punct.add_punctuation(result)
-                            result = self.invnormalizer.normalize(result)
-                            await socket.send(
-                                json.dumps(
-                                    {"text": result, "segment": segment, "end": True}
-                                )
+                    if "end" in speech_dict:
+                        result = self.punct.add_punctuation(result)
+                        result = self.invnormalizer.normalize(result)
+                        await socket.send(
+                            json.dumps(
+                                {"text": result, "segment": segment, "end": True}
                             )
-                            segment += 1
-                            self.recognizer.reset(stream)
+                        )
+                        segment += 1
+                        self.recognizer.reset(stream)
             stream.input_finished()
         except websockets.exceptions.ConnectionClosedError:
             logging.info("%s disconnected", socket.remote_address)
