@@ -1,4 +1,5 @@
 modelscope
 sherpa_onnx
-silero-vad
-WeTextProcessing
+sounddevice
+pysilero
+wetext

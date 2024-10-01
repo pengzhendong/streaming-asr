@@ -23,9 +23,9 @@ from typing import Optional, Tuple
 import numpy as np
 import sherpa_onnx
 import websockets
-from itn.chinese.inverse_normalizer import InverseNormalizer
 from modelscope import snapshot_download
-from silero_vad import init_session, SileroVAD, VADIterator
+from pysilero import init_session, SileroVAD, VADIterator
+from wetext import Normalizer
 
 
 class StreamingServer(object):
@@ -95,7 +95,7 @@ class StreamingServer(object):
             )
         )
 
-        self.invnormalizer = InverseNormalizer()
+        self.invnormalizer = Normalizer(lang="zh", operator="itn")
 
     async def stream_consumer_task(self):
         """This function extracts streams from the queue, batches them up, sends
@@ -203,14 +203,15 @@ class StreamingServer(object):
                         await socket.send(
                             json.dumps({"text": result, "segment": segment})
                         )
-                    if "end" in speech_dict:
+                    if "end" in speech_dict and result != "":
                         result = self.punct.add_punctuation(result)
                         result = self.invnormalizer.normalize(result)
-                        await socket.send(
-                            json.dumps(
-                                {"text": result, "segment": segment, "end": True}
-                            )
+                        json_data = json.dumps(
+                            {"text": result, "segment": segment, "end": True},
+                            ensure_ascii=False,
                         )
+                        logging.info("asr result: %s", json_data)
+                        await socket.send(json_data)
                         segment += 1
                         self.recognizer.reset(stream)
             stream.input_finished()

@@ -16,22 +16,47 @@ import asyncio
 import json
 import logging
 
+import sounddevice as sd
 import wave
 import websockets
 
 
-async def send(ws):
+async def send_wav(ws):
     try:
-        wf = wave.open("test.wav")
+        wf = wave.open("test_16k.wav")
         n_frames = wf.getnframes()
         framerate = wf.getframerate()
         chunk_ms = 10 # 10ms each chunk
         chunk_frames = chunk_ms * framerate // 1000
+        import numpy as np
         for _ in range(0, n_frames, chunk_frames):
             frames = wf.readframes(chunk_frames)
             await ws.send(frames)
             # Simulate streaming
             await asyncio.sleep(chunk_ms / 1000)
+        await ws.send("Done")
+    except Exception as e:
+        logging.info(e)
+
+
+async def send(ws):
+    try:
+        devices = sd.query_devices()
+        if len(devices) == 0:
+            print("No microphone devices found")
+            sys.exit(0)
+        print(devices)
+        default_input_device_idx = sd.default.device[0]
+        print(f'Use default device: {devices[default_input_device_idx]["name"]}')
+
+        sample_rate = 16000
+        samples_per_read = int(0.1 * sample_rate)
+        with sd.InputStream(channels=1, dtype="float32", samplerate=sample_rate) as s:
+            while True:
+                samples, _ = s.read(samples_per_read)
+                samples = (samples[:, 0] * 32768).astype("int16")
+                await ws.send(samples.data)
+                await asyncio.sleep(0.1)  # 让出 CPU 资源给其他协程
         await ws.send("Done")
     except Exception as e:
         logging.info(e)
@@ -49,6 +74,7 @@ async def receive(ws):
 async def main():
     ws = await websockets.connect("ws://127.0.0.1:6006")
     send_task = asyncio.create_task(send(ws))
+    # send_task = asyncio.create_task(send_wav(ws))
     receive_task = asyncio.create_task(receive(ws))
     try:
         await asyncio.gather(send_task, receive_task)
