@@ -23,9 +23,10 @@ from typing import Optional, Tuple
 import numpy as np
 import sherpa_onnx
 import websockets
-from modelscope import snapshot_download
-from pysilero import init_session, SileroVAD, VADIterator
-from wetext import Normalizer
+from pysilero import VADIterator
+
+from .emotion2vec import Emotion2Vec
+from .recognizer import Recognizer
 
 
 class StreamingServer(object):
@@ -71,31 +72,9 @@ class StreamingServer(object):
         self.max_active_connections = max_active_connections
         self.current_active_connections = 0
 
-        self.vad_session = init_session()
-
+        self.emotion2vec = Emotion2Vec()
         self.sample_rate = 16000
-        asr_repo_dir = snapshot_download("pengzhendong/streaming-paraformer-zh-en")
-        self.recognizer = sherpa_onnx.OnlineRecognizer.from_paraformer(
-            tokens=f"{asr_repo_dir}/tokens.txt",
-            encoder=f"{asr_repo_dir}/encoder.onnx",
-            decoder=f"{asr_repo_dir}/decoder.onnx",
-            num_threads=1,
-            provider="cpu",
-            sample_rate=self.sample_rate,
-            feature_dim=80,
-            decoding_method="greedy_search",
-        )
-
-        punct_repo_dir = snapshot_download("pengzhendong/punct-ct-transformer-zh-en")
-        self.punct = sherpa_onnx.OfflinePunctuation(
-            sherpa_onnx.OfflinePunctuationConfig(
-                model=sherpa_onnx.OfflinePunctuationModelConfig(
-                    ct_transformer=f"{punct_repo_dir}/model.onnx"
-                )
-            )
-        )
-
-        self.invnormalizer = Normalizer(lang="zh", operator="itn")
+        self.recognizer = Recognizer(sample_rate=self.sample_rate)
 
     async def stream_consumer_task(self):
         """This function extracts streams from the queue, batches them up, sends
@@ -173,9 +152,8 @@ class StreamingServer(object):
                 self.max_active_connections,
             )
             stream = self.recognizer.create_stream()
-            vad_iterator = VADIterator(
-                SileroVAD(self.vad_session, self.sample_rate, denoise=True)
-            )
+            samples = []
+            vad_iterator = VADIterator(sample_rate=self.sample_rate, denoise=True)
 
             segment = 0
             last_result = ""
@@ -204,10 +182,17 @@ class StreamingServer(object):
                             json.dumps({"text": result, "segment": segment})
                         )
                     if "end" in speech_dict and result != "":
-                        result = self.punct.add_punctuation(result)
-                        result = self.invnormalizer.normalize(result)
+                        emotion = self.emotion2vec.inference(
+                            vad_iterator.speech_samples
+                        )
+                        result = self.recognizer.post_process(result)
                         json_data = json.dumps(
-                            {"text": result, "segment": segment, "end": True},
+                            {
+                                "text": result,
+                                "emotion": emotion,
+                                "segment": segment,
+                                "end": True,
+                            },
                             ensure_ascii=False,
                         )
                         logging.info("asr result: %s", json_data)
