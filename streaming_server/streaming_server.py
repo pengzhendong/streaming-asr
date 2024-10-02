@@ -27,6 +27,7 @@ from pysilero import VADIterator
 
 from .emotion2vec import Emotion2Vec
 from .recognizer import Recognizer
+from .speaker import Speaker
 
 
 class StreamingServer(object):
@@ -74,6 +75,7 @@ class StreamingServer(object):
 
         self.emotion2vec = Emotion2Vec()
         self.sample_rate = 16000
+        self.speaker = Speaker(sample_rate=self.sample_rate)
         self.recognizer = Recognizer(sample_rate=self.sample_rate)
 
     async def stream_consumer_task(self):
@@ -152,7 +154,6 @@ class StreamingServer(object):
                 self.max_active_connections,
             )
             stream = self.recognizer.create_stream()
-            samples = []
             vad_iterator = VADIterator(sample_rate=self.sample_rate, denoise=True)
 
             segment = 0
@@ -182,14 +183,12 @@ class StreamingServer(object):
                             json.dumps({"text": result, "segment": segment})
                         )
                     if "end" in speech_dict and result != "":
-                        emotion = self.emotion2vec.inference(
-                            vad_iterator.speech_samples
-                        )
-                        result = self.recognizer.post_process(result)
+                        speech_samples = vad_iterator.speech_samples
                         json_data = json.dumps(
                             {
-                                "text": result,
-                                "emotion": emotion,
+                                "text": self.recognizer.post_process(result),
+                                "emotion": self.emotion2vec.inference(speech_samples),
+                                "speaker": self.speaker.get_speaker_id(speech_samples),
                                 "segment": segment,
                                 "end": True,
                             },

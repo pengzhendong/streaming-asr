@@ -21,11 +21,11 @@ class Emotion2Vec:
     def __init__(self, model_id="iic/emotion2vec_base_finetuned"):
         self.model = AutoModel(model=model_id)
 
-    def inference(self, samples, granularity="utterance", extract_embedding=False):
+    def inference(self, samples, granularity="utterance"):
         assert granularity in ["frame", "utterance"]
         res = self.model.generate(
             samples,
-            granularity="utterance",
+            granularity=granularity,
             extract_embedding=False,
         )[0]
         return res["labels"][np.argmax(res["scores"])]
